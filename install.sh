@@ -131,7 +131,7 @@ rand_port() {
 
 rand_str() {
     local len="${1:-8}"
-    tr -dc 'a-zA-Z0-9' </dev/urandom | head -c "$len"
+    head -c 256 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "$len" || true
 }
 
 # ============ 防火墙 ============
@@ -260,8 +260,7 @@ get_public_ip() {
     echo "$ip"
 }
 
-rand_str() { tr -dc 'a-zA-Z0-9' </dev/urandom | head -c "${1:-8}"; }
-
+rand_str() { head -c 256 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "${1:-8}" || true; }
 regenerate_config() {
     local port
     port="$(get_port)"
