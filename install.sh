@@ -454,7 +454,7 @@ do_install() {
     # 检查是否已安装
     if [[ -f "$GOST_BIN" ]] && [[ -f "$CONFIG_FILE" ]]; then
         warn "检测到已有安装"
-        read -rp "是否重新安装? (y/N): " reinstall
+        read -rp "是否重新安装? (y/N): " reinstall </dev/tty
         [[ "${reinstall,,}" != "y" ]] && { info "已取消"; exit 0; }
         systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     fi
@@ -464,7 +464,7 @@ do_install() {
     # 端口
     local default_port
     default_port="$(rand_port)"
-    read -rp "$(echo -e "${CYAN}[?]${NC} 端口 (回车随机 ${default_port}): ")" S5_PORT
+    read -rp "$(echo -e "${CYAN}[?]${NC} 端口 (回车随机 ${default_port}): ")" S5_PORT </dev/tty
     S5_PORT="${S5_PORT:-$default_port}"
 
     # 检查端口是否被占用
@@ -474,13 +474,13 @@ do_install() {
 
     # 用户名
     local default_user="user_$(rand_str 4)"
-    read -rp "$(echo -e "${CYAN}[?]${NC} 用户名 (回车随机 ${default_user}): ")" S5_USER
+    read -rp "$(echo -e "${CYAN}[?]${NC} 用户名 (回车随机 ${default_user}): ")" S5_USER </dev/tty
     S5_USER="${S5_USER:-$default_user}"
 
     # 密码
     local default_pass
     default_pass="$(rand_str 16)"
-    read -rp "$(echo -e "${CYAN}[?]${NC} 密码 (回车随机): ")" S5_PASS
+    read -rp "$(echo -e "${CYAN}[?]${NC} 密码 (回车随机): ")" S5_PASS </dev/tty
     S5_PASS="${S5_PASS:-$default_pass}"
 
     echo ""
