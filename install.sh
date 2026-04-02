@@ -196,8 +196,9 @@ services:
     type: socks5
     auths:
 $(while IFS=: read -r user pass; do
-    echo "    - username: ${user}"
-    echo "      password: ${pass}"
+    [[ -z "$user" ]] && continue
+    echo "    - username: \"${user}\""
+    echo "      password: \"${pass}\""
 done < "$USERS_FILE")
   listener:
     type: tcp
@@ -249,7 +250,7 @@ info() { echo -e "${CYAN}[i]${NC} $*"; }
 
 [[ $EUID -eq 0 ]] || err "请使用 root 权限运行"
 
-get_port() { grep -oP '":(\d+)"' "$CONFIG_FILE" | tr -dc '0-9'; }
+get_port() { grep -oP 'addr:\s*"?:(\d+)"?' "$CONFIG_FILE" | tr -dc '0-9'; }
 
 get_public_ip() {
     local ip=""
@@ -272,8 +273,9 @@ services:
     type: socks5
     auths:
 $(while IFS=: read -r user pass; do
-    echo "    - username: ${user}"
-    echo "      password: ${pass}"
+    [[ -z "$user" ]] && continue
+    echo "    - username: \"${user}\""
+    echo "      password: \"${pass}\""
 done < "$USERS_FILE")
   listener:
     type: tcp
@@ -294,6 +296,7 @@ show_info() {
     echo ""
     echo -e " ${BOLD}连接链接:${NC}"
     while IFS=: read -r user pass; do
+        [[ -z "$user" ]] && continue
         echo -e "  ${GREEN}socks5://${user}:${pass}@${ip}:${port}${NC}"
     done < "$USERS_FILE"
     echo -e "${BOLD}═══════════════════════════════════════${NC}"
@@ -326,10 +329,10 @@ case "${1:-help}" in
         [[ -z "$new_pass" ]] && new_pass="$(rand_str 12)"
         echo "${new_user}:${new_pass}" >> "$USERS_FILE"
         regenerate_config
-        local ip; ip="$(get_public_ip)"
-        local port; port="$(get_port)"
+        _ip="$(get_public_ip)"
+        _port="$(get_port)"
         msg "用户已添加"
-        echo -e "  ${GREEN}socks5://${new_user}:${new_pass}@${ip}:${port}${NC}"
+        echo -e "  ${GREEN}socks5://${new_user}:${new_pass}@${_ip}:${_port}${NC}"
         ;;
     del)
         if [[ ! -s "$USERS_FILE" ]]; then
@@ -338,15 +341,17 @@ case "${1:-help}" in
         fi
         echo ""
         info "当前用户列表:"
-        local i=1
+        _i=1
         while IFS=: read -r user pass; do
-            echo "  ${i}) ${user}"
-            ((i++))
+            [[ -z "$user" ]] && continue
+            echo "  ${_i}) ${user}"
+            ((_i++))
         done < "$USERS_FILE"
         echo ""
         read -rp "输入要删除的用户名: " del_user
-        if grep -q "^${del_user}:" "$USERS_FILE"; then
-            sed -i "/^${del_user}:/d" "$USERS_FILE"
+        if grep -Fq "${del_user}:" "$USERS_FILE" && grep -q "^$(printf '%s' "$del_user" | sed 's/[.[\*^$()+?{|\\]/\\&/g'):" "$USERS_FILE"; then
+            grep -Fxv "$(grep -F "${del_user}:" "$USERS_FILE")" "$USERS_FILE" > "${USERS_FILE}.tmp" || true
+            mv "${USERS_FILE}.tmp" "$USERS_FILE"
             if [[ ! -s "$USERS_FILE" ]]; then
                 warn "警告: 已无用户，服务将无法认证"
             fi
@@ -359,10 +364,11 @@ case "${1:-help}" in
     list)
         echo ""
         info "当前用户列表:"
-        local ip; ip="$(get_public_ip)"
-        local port; port="$(get_port)"
+        _ip="$(get_public_ip)"
+        _port="$(get_port)"
         while IFS=: read -r user pass; do
-            echo -e "  ${CYAN}${user}${NC} -> socks5://${user}:${pass}@${ip}:${port}"
+            [[ -z "$user" ]] && continue
+            echo -e "  ${CYAN}${user}${NC} -> socks5://${user}:${pass}@${_ip}:${_port}"
         done < "$USERS_FILE"
         echo ""
         ;;
@@ -371,8 +377,7 @@ case "${1:-help}" in
         warn "即将卸载 SOCKS5 代理服务"
         read -rp "确认卸载? (y/N): " confirm
         if [[ "${confirm,,}" == "y" ]]; then
-            local port
-            port="$(get_port)" 2>/dev/null || true
+            _port="$(get_port)" 2>/dev/null || _port=""
             systemctl stop "$SERVICE_NAME" 2>/dev/null || true
             systemctl disable "$SERVICE_NAME" 2>/dev/null || true
             rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
@@ -380,14 +385,14 @@ case "${1:-help}" in
             rm -f "$GOST_BIN"
             rm -rf "$CONFIG_DIR"
             # 清理防火墙
-            if [[ -n "${port:-}" ]]; then
-                if command -v ufw &>/dev/null; then ufw delete allow "$port"/tcp 2>/dev/null || true; fi
+            if [[ -n "${_port:-}" ]]; then
+                if command -v ufw &>/dev/null; then ufw delete allow "$_port"/tcp 2>/dev/null || true; fi
                 if command -v firewall-cmd &>/dev/null; then
-                    firewall-cmd --permanent --remove-port="${port}/tcp" 2>/dev/null || true
+                    firewall-cmd --permanent --remove-port="${_port}/tcp" 2>/dev/null || true
                     firewall-cmd --reload 2>/dev/null || true
                 fi
                 if command -v iptables &>/dev/null; then
-                    iptables -D INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
+                    iptables -D INPUT -p tcp --dport "$_port" -j ACCEPT 2>/dev/null || true
                 fi
             fi
             rm -f "/usr/local/bin/socks5"
@@ -424,11 +429,8 @@ download_gost() {
     local tmp_dir
     tmp_dir="$(mktemp -d)"
 
-    if ! curl -fsSL --retry 3 -o "${tmp_dir}/${filename}" "$url"; then
-        # 尝试备用下载
-        warn "GitHub 下载失败，尝试备用源..."
-        local mirror_url="https://ghproxy.com/${url}"
-        curl -fsSL --retry 3 -o "${tmp_dir}/${filename}" "$mirror_url" || err "下载失败，请检查网络"
+    if ! curl -fsSL --retry 3 --connect-timeout 10 -o "${tmp_dir}/${filename}" "$url"; then
+        err "下载失败，请检查网络连接后重试"
     fi
 
     tar -xzf "${tmp_dir}/${filename}" -C "${tmp_dir}"
@@ -441,7 +443,7 @@ download_gost() {
 # ============ 主安装流程 ============
 do_install() {
     # 修复 bash <(curl ...) 方式运行时 stdin 被占用的问题
-    exec < /dev/tty
+    exec < /dev/tty || err "无法连接终端，请在交互式终端中运行此脚本"
 
     echo ""
     echo -e "${BOLD}╔═══════════════════════════════════════╗${NC}"
@@ -468,6 +470,11 @@ do_install() {
     default_port="$(rand_port)"
     read -rp "$(echo -e "${CYAN}[?]${NC} 端口 (回车随机 ${default_port}): ")" S5_PORT
     S5_PORT="${S5_PORT:-$default_port}"
+
+    # 验证端口是否为合法数字
+    if ! [[ "$S5_PORT" =~ ^[0-9]+$ ]] || (( S5_PORT < 1 || S5_PORT > 65535 )); then
+        err "无效端口: ${S5_PORT}，请输入 1-65535 之间的数字"
+    fi
 
     # 检查端口是否被占用
     if ss -tlnp | grep -q ":${S5_PORT} "; then
